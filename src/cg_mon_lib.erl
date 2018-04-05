@@ -10,11 +10,7 @@
 
 %% API
 -export([
-    discovery_file/0,
     cgroup_root/0,
-    discover_cgroups/0,
-    discover_cgroups/1,
-    discover_cgroups/2,
     read_cgroups_metrics/5
 ]).
 
@@ -27,56 +23,9 @@
 -type metric_source()   :: StatFile :: string() | { Key :: atom(), ValueFile :: string()}.
 
 
--spec discovery_file() -> string().
-discovery_file() ->
-    "/proc/self/cgroup".
-
 -spec cgroup_root() -> string().
 cgroup_root() ->
     "/sys/fs/cgroup".
-
--spec discover_cgroups() ->
-    {ok, cgroup_map()}
-    | {error, Reason :: atom()}.
-discover_cgroups() ->
-    discover_cgroups(cgroup_root(), discovery_file()).
-
--spec discover_cgroups(Root :: string()) ->
-    {ok, cgroup_map()}
-    | {error, Reason :: atom()}.
-discover_cgroups(Root) ->
-    discover_cgroups(Root, discovery_file()).
-
--spec discover_cgroups(Root :: string(), FileName :: string()) ->
-    {ok, cgroup_map()}
-    | {error, Reason :: atom()}.
-discover_cgroups(Root, FileName) ->
-    with_file(
-        fun(DiscoveryFile) ->
-            parse_discovery_file(DiscoveryFile, Root)
-        end,
-        FileName
-    ).
-
-
--spec parse_discovery_file(File :: file:io_device(), CgroupRoot :: string()) ->
-    {ok, cgroup_map()}
-    | {error, Reason :: atom()}.
-parse_discovery_file(File, CgroupRoot) ->
-    foldl_lines(
-        fun(Line, Acc) ->
-            [_, Resources, GroupName] = string:tokens(Line, ":"),
-            ResourcesList = string:tokens(Resources, ","),
-            RelativeName = fixup_group_name(GroupName),
-            FullName = filename:join([CgroupRoot, Resources]) ++ RelativeName,
-            lists:foldl(
-                fun(ResourceName, TmpAcc) ->
-                    [ {list_to_atom(ResourceName), FullName} | TmpAcc]
-                end, Acc, ResourcesList
-            )
-        end, [], File
-    ).
-
 
 -spec with_file(fun( (File :: file:io_device()) -> any() ), Filename :: string()) ->
     any().
@@ -188,24 +137,6 @@ strip_line_ending(Line) ->
 
 -include_lib("cgmon/include/test_utils.hrl").
 
-discovery_error_test() ->
-    Res = discover_cgroups(cgroup_root(), ?TEST_FILE("non-existent-file")),
-    ?assertEqual(Res, {error, enoent}).
-
-discovery_denied_test() ->
-    Res = discover_cgroups(cgroup_root(), "/root/some-not-permitted-file"),
-    ?assertEqual(Res, {error, eacces}).
-
-discovery_test_() ->
-    {ok, Res} = discover_cgroups(cgroup_root(), ?TEST_FILE("cgroup.discovery")),
-    [
-        ?_assertEqual(4, length(Res)),
-        ?_assertEqual("/sys/fs/cgroup/memory/foo/", proplists:get_value(memory, Res)),
-        ?_assertEqual("/sys/fs/cgroup/cpu,cpuacct/bar/", proplists:get_value(cpu, Res)),
-        ?_assertEqual("/sys/fs/cgroup/cpu,cpuacct/bar/", proplists:get_value(cpuacct, Res)),
-        ?_assertEqual("/sys/fs/cgroup/cpuset/", proplists:get_value(cpuset, Res))
-    ].
-
 
 read_stat_file_error_test_() ->
     [
@@ -225,9 +156,6 @@ read_stat_file_test_() ->
         ?_assertEqual(7, length(Result)),
         ?_assertEqual(1, proplists:get_value("cache", Result))
     ].
-
-
-
 
 read_cgroups_metrics_test_() ->
     KeyValueSources = [
